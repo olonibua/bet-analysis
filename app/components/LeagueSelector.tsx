@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { COMPETITIONS } from '@/lib/football-api';
 
 interface LeagueSelectorProps {
@@ -19,6 +20,44 @@ const LEAGUE_NAMES = {
 } as const;
 
 export function LeagueSelector({ onLeagueSelect, loading, selectedLeague }: LeagueSelectorProps) {
+  const [progress, setProgress] = useState(0);
+  const [estimatedTimeLeft, setEstimatedTimeLeft] = useState(0);
+
+  // Estimated time in seconds for a league sync (1-2 minutes)
+  const ESTIMATED_TIME = 90;
+
+  useEffect(() => {
+    if (!loading) {
+      setProgress(0);
+      setEstimatedTimeLeft(0);
+      return;
+    }
+
+    setProgress(0);
+    setEstimatedTimeLeft(ESTIMATED_TIME);
+
+    const interval = setInterval(() => {
+      setProgress((prev) => {
+        if (prev >= 95) return 95;
+        return prev + Math.random() * 15;
+      });
+
+      setEstimatedTimeLeft((prev) => {
+        if (prev <= 0) return 0;
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [loading]);
+
+  const formatTime = (seconds: number): string => {
+    if (seconds <= 0) return 'Completing...';
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
   return (
     <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
       <h2 className="text-lg font-semibold text-gray-900 mb-4">
@@ -55,18 +94,56 @@ export function LeagueSelector({ onLeagueSelect, loading, selectedLeague }: Leag
         ))}
       </div>
 
-      {/* Loading State */}
+      {/* Loading State with Progress Bar */}
       {loading && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-3">
           <div className="flex items-center">
             <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600 mr-3"></div>
-            <div>
+            <div className="flex-1">
               <p className="text-blue-800 font-medium">
                 Loading {selectedLeague ? LEAGUE_NAMES[selectedLeague as keyof typeof LEAGUE_NAMES] : 'data'}...
               </p>
               <p className="text-blue-600 text-sm mt-1">
                 Fetching fixtures and calculating probabilities. This may take a few minutes.
               </p>
+            </div>
+            <div className="text-right">
+              <p className="text-blue-700 font-semibold text-lg">
+                {formatTime(estimatedTimeLeft)}
+              </p>
+              <p className="text-blue-600 text-xs">
+                Time remaining
+              </p>
+            </div>
+          </div>
+
+          {/* Progress Bar */}
+          <div className="w-full">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-medium text-blue-700">Progress</span>
+              <span className="text-xs font-medium text-blue-700">{Math.round(progress)}%</span>
+            </div>
+            <div className="w-full bg-blue-200 rounded-full h-2 overflow-hidden">
+              <div
+                className="bg-gradient-to-r from-blue-500 to-blue-600 h-full rounded-full transition-all duration-300 ease-out"
+                style={{ width: `${Math.min(progress, 100)}%` }}
+              ></div>
+            </div>
+          </div>
+
+          {/* Stage Indicators */}
+          <div className="grid grid-cols-3 gap-2 text-xs">
+            <div className={`text-center p-2 rounded ${progress >= 30 ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+              <p className="font-medium">Fetching Data</p>
+              <p className="text-sm">{progress >= 30 ? 'Done' : 'Waiting'}</p>
+            </div>
+            <div className={`text-center p-2 rounded ${progress >= 65 ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+              <p className="font-medium">Processing</p>
+              <p className="text-sm">{progress >= 65 ? 'Done' : 'Waiting'}</p>
+            </div>
+            <div className={`text-center p-2 rounded ${progress >= 95 ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+              <p className="font-medium">Finalizing</p>
+              <p className="text-sm">{progress >= 95 ? 'Done' : 'Waiting'}</p>
             </div>
           </div>
         </div>
