@@ -10,11 +10,10 @@ import {
 import {
   createEvent,
   createMatch,
-  getEventById,
   getTeamByName,
   createTeam
 } from './database';
-import { Event, Match, Team } from './types';
+import { Team } from './types';
 import { databaseRateLimiter, withRetry, processBatch } from './rate-limiter';
 
 // Main function to crawl and store upcoming fixtures
@@ -303,8 +302,8 @@ const ensureTeamsExistWithRateLimit = async (homeTeam: string, awayTeam: string,
 // Function to run full data sync (fixtures + historical matches)
 export const runFullDataSync = async (): Promise<{
   success: boolean;
-  fixturesResult: any;
-  matchesResult: any;
+  fixturesResult: { success: boolean; eventsCreated: number; errors: string[] };
+  matchesResult: { success: boolean; matchesCreated: number; errors: string[] };
   totalErrors: string[]
 }> => {
   console.log('Starting full data sync...');

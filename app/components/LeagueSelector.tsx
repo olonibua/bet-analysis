@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import { COMPETITIONS } from '@/lib/football-api';
 
 interface LeagueSelectorProps {

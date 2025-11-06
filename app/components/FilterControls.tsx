@@ -2,13 +2,15 @@
 
 import { ChevronDown } from 'lucide-react';
 
+interface Filters {
+  league: string;
+  confidence: string;
+  dateRange: string;
+}
+
 interface FilterControlsProps {
-  filters: {
-    league: string;
-    confidence: string;
-    dateRange: string;
-  };
-  onFiltersChange: (filters: any) => void;
+  filters: Filters;
+  onFiltersChange: (filters: Filters) => void;
 }
 
 export function FilterControls({ filters, onFiltersChange }: FilterControlsProps) {

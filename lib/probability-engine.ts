@@ -1,6 +1,5 @@
 import { getHistoricalMatches, getTeamMatches, createProbability, deleteProbabilitiesByEvent } from './database';
 import { Match, Event, Probability, SubMarketAnalysis, MARKETS, SUB_MARKETS } from './types';
-import { getMatchEvents, getMatchLineup, getTeamSquad } from './football-api';
 
 // Configuration for probability calculations
 const PROBABILITY_CONFIG = {
@@ -28,7 +27,6 @@ export const calculateEventProbabilities = async (event: Event): Promise<Probabi
     // Get historical data for both teams
     const homeTeamMatches = await getTeamMatches(event.homeTeam, 20);
     const awayTeamMatches = await getTeamMatches(event.awayTeam, 20);
-    const headToHeadMatches = await getHistoricalMatches(event.homeTeam, event.awayTeam, 10);
 
     // Calculate probabilities for each sub-market
     let probabilities: Omit<Probability, '$id' | '$createdAt' | '$updatedAt'>[] = [];
@@ -42,18 +40,18 @@ export const calculateEventProbabilities = async (event: Event): Promise<Probabi
     );
 
     // Store probabilities in database
-    const createdProbabilities = [];
+    const createdProbabilities: Probability[] = [];
     for (const prob of probabilities) {
       try {
         const created = await createProbability(prob);
-        createdProbabilities.push(created);
+        createdProbabilities.push(created as unknown as Probability);
       } catch (error) {
         console.error('Error storing probability:', error);
       }
     }
 
     console.log(`Created ${createdProbabilities.length} probabilities for event ${event.$id}`);
-    return createdProbabilities as Probability[];
+    return createdProbabilities;
 
   } catch (error) {
     console.error('Error calculating event probabilities:', error);

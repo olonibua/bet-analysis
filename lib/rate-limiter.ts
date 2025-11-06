@@ -49,7 +49,7 @@ export async function withRetry<T>(
 
       // Check if it's a rate limit error
       if (error && typeof error === 'object' && 'code' in error) {
-        const appwriteError = error as any;
+        const appwriteError = error as { code?: number };
         if (appwriteError.code === 429) {
           console.log(`Rate limit hit on attempt ${attempt + 1}, will retry...`);
           continue;

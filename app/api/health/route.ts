@@ -22,12 +22,12 @@ export async function GET() {
       components: {
         footballApi: {
           status: apiConnection.status === 'fulfilled' && apiConnection.value?.success ? 'healthy' : 'unhealthy',
-          details: apiConnection.status === 'rejected' ? apiConnection.reason?.message : 
+          details: apiConnection.status === 'rejected' ? apiConnection.reason?.message :
                    apiConnection.status === 'fulfilled' ? {
                      connection: 'successful',
                      plan: apiConnection.value?.plan || 'unknown',
-                     competitions: apiConnection.value?.details?.competitions || 0,
-                     rateLimit: apiConnection.value?.details?.rateLimit || 'unknown'
+                     competitions: (apiConnection.value?.details as Record<string, unknown>)?.competitions || 0,
+                     rateLimit: (apiConnection.value?.details as Record<string, unknown>)?.rateLimit || 'unknown'
                    } : 'Connection failed'
         },
         database: {

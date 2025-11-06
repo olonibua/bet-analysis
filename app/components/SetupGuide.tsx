@@ -77,7 +77,7 @@ export function SetupGuide() {
       } else {
         alert('Data sync failed. Please check your API key configuration.');
       }
-    } catch (error) {
+    } catch {
       alert('Error starting data sync. Please try again.');
     }
   };

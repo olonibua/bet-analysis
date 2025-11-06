@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
         }
 
         // Re-fetch league data
-        if (!league || !Object.values(COMPETITIONS).includes(league as any)) {
+        if (!league || !(Object.values(COMPETITIONS) as readonly string[]).includes(league)) {
           return NextResponse.json({
             success: false,
             action,
@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
 
       case 'crawl':
         // Only crawl data, don't calculate probabilities
-        if (league && Object.values(COMPETITIONS).includes(league as any)) {
+        if (league && (Object.values(COMPETITIONS) as readonly string[]).includes(league)) {
           // Crawl specific league only
           result = await crawlLeagueFixtures(league, 7);
         } else {
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
 
       case 'league':
         // New: Crawl specific league with probabilities
-        if (!league || !Object.values(COMPETITIONS).includes(league as any)) {
+        if (!league || !(Object.values(COMPETITIONS) as readonly string[]).includes(league)) {
           return NextResponse.json({
             success: false,
             action,

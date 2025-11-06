@@ -63,7 +63,7 @@ export const getFixtures = async (
   dateTo?: string
 ): Promise<FootballDataFixture[]> => {
   try {
-    const params: any = {};
+    const params: Record<string, string> = {};
     if (dateFrom) params.dateFrom = dateFrom;
     if (dateTo) params.dateTo = dateTo;
 
@@ -222,7 +222,22 @@ export const convertMatchToMatch = (match: FootballDataMatch): Omit<Match, '$id'
 };
 
 // Get enhanced match statistics using Deep Data plan features
-export const getEnhancedMatchStatistics = async (matchId: number): Promise<any> => {
+export const getEnhancedMatchStatistics = async (matchId: number): Promise<{
+  homeYellowCards: number;
+  awayYellowCards: number;
+  totalYellowCards: number;
+  homeRedCards: number;
+  awayRedCards: number;
+  totalRedCards: number;
+  homeGoals: number;
+  awayGoals: number;
+  homeSubstitutions: number;
+  awaySubstitutions: number;
+  goalScorers: Array<{ player: string; team: string; minute: number }>;
+  yellowCards: Array<{ player: string; team: string; minute: number }>;
+  redCards: Array<{ player: string; team: string; minute: number }>;
+  substitutions: Array<{ playerIn: string; playerOut: string; team: string; minute: number }>;
+} | null> => {
   try {
     // Fetch match events to get goals, cards, etc.
     const events = await getMatchEvents(matchId);
@@ -397,7 +412,7 @@ export const getTeamSquad = async (teamId: number): Promise<Player[]> => {
 };
 
 // Test API connection and detect plan
-export const testApiConnection = async (): Promise<{ success: boolean; plan?: string; details?: any }> => {
+export const testApiConnection = async (): Promise<{ success: boolean; plan?: string; details?: Record<string, unknown> | string }> => {
   try {
     const response = await footballApi.get('/competitions');
     console.log('Football-data API connection successful');

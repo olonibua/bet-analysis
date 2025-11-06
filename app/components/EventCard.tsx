@@ -7,9 +7,20 @@ interface EventCardProps {
   event: EventWithProbabilities;
 }
 
+interface Probability {
+  market: string;
+  probability: number;
+  [key: string]: unknown;
+}
+
+interface GroupedMarket {
+  market: string;
+  probabilities: Probability[];
+}
+
 // Group probabilities by market for better organization
-function groupProbabilitiesByMarket(probabilities: any[]) {
-  const grouped = probabilities.reduce((acc: any, prob) => {
+function groupProbabilitiesByMarket(probabilities: Probability[]): GroupedMarket[] {
+  const grouped = probabilities.reduce((acc: Record<string, Probability[]>, prob) => {
     if (!acc[prob.market]) {
       acc[prob.market] = [];
     }
@@ -19,7 +30,7 @@ function groupProbabilitiesByMarket(probabilities: any[]) {
 
   return Object.keys(grouped).map(market => ({
     market,
-    probabilities: grouped[market].sort((a: any, b: any) => b.probability - a.probability)
+    probabilities: grouped[market].sort((a: Probability, b: Probability) => b.probability - a.probability)
   }));
 }
 
@@ -80,7 +91,7 @@ export function EventCard({ event }: EventCardProps) {
               <div key={group.market}>
                 <h5 className="text-xs font-semibold text-gray-600 mb-2">{group.market}</h5>
                 <div className="space-y-2">
-                  {group.probabilities.map((prob: any) => (
+                  {group.probabilities.map((prob: Probability & { $id: string }) => (
                     <ProbabilityItem key={prob.$id} probability={prob} />
                   ))}
                 </div>
@@ -102,7 +113,7 @@ export function EventCard({ event }: EventCardProps) {
 }
 
 interface ProbabilityItemProps {
-  probability: any; // Using any for now, in production this would be Probability type
+  probability: Probability & { $id: string; confidence?: string; sampleSize?: number };
 }
 
 function ProbabilityItem({ probability }: ProbabilityItemProps) {

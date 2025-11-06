@@ -8,8 +8,9 @@ export const ensureDatabaseExists = async (): Promise<boolean> => {
     await databases.listCollections(DATABASE_ID);
     console.log('Database exists');
     return true;
-  } catch (error: any) {
-    if (error.code === 404 || error.message.includes('Database not found')) {
+  } catch (error: unknown) {
+    const err = error as { code?: number; message?: string };
+    if (err.code === 404 || err.message?.includes('Database not found')) {
       console.log('Database not found, will be created with first collection');
       return false;
     }
@@ -40,8 +41,9 @@ const createCollectionSafely = async (
     );
     console.log(`✅ Created collection: ${name}`);
     return collection;
-  } catch (error: any) {
-    if (error.code === 409) {
+  } catch (error: unknown) {
+    const err = error as { code?: number };
+    if (err.code === 409) {
       console.log(`ℹ️  Collection ${name} already exists`);
       return await databases.getCollection(DATABASE_ID, collectionId);
     }
@@ -60,11 +62,12 @@ const addStringAttributeSafely = async (
   try {
     await databases.createStringAttribute(DATABASE_ID, collectionId, key, size, required);
     console.log(`  ✅ Added string attribute: ${key}`);
-  } catch (error: any) {
-    if (error.code === 409) {
+  } catch (error: unknown) {
+    const err = error as { code?: number; message?: string };
+    if (err.code === 409) {
       console.log(`  ℹ️  Attribute ${key} already exists`);
     } else {
-      console.log(`  ⚠️  Failed to add attribute ${key}: ${error.message}`);
+      console.log(`  ⚠️  Failed to add attribute ${key}: ${err.message}`);
     }
   }
 };
@@ -78,11 +81,12 @@ const addIntegerAttributeSafely = async (
   try {
     await databases.createIntegerAttribute(DATABASE_ID, collectionId, key, required);
     console.log(`  ✅ Added integer attribute: ${key}`);
-  } catch (error: any) {
-    if (error.code === 409) {
+  } catch (error: unknown) {
+    const err = error as { code?: number; message?: string };
+    if (err.code === 409) {
       console.log(`  ℹ️  Attribute ${key} already exists`);
     } else {
-      console.log(`  ⚠️  Failed to add attribute ${key}: ${error.message}`);
+      console.log(`  ⚠️  Failed to add attribute ${key}: ${err.message}`);
     }
   }
 };
@@ -96,11 +100,12 @@ const addFloatAttributeSafely = async (
   try {
     await databases.createFloatAttribute(DATABASE_ID, collectionId, key, required);
     console.log(`  ✅ Added float attribute: ${key}`);
-  } catch (error: any) {
-    if (error.code === 409) {
+  } catch (error: unknown) {
+    const err = error as { code?: number; message?: string };
+    if (err.code === 409) {
       console.log(`  ℹ️  Attribute ${key} already exists`);
     } else {
-      console.log(`  ⚠️  Failed to add attribute ${key}: ${error.message}`);
+      console.log(`  ⚠️  Failed to add attribute ${key}: ${err.message}`);
     }
   }
 };
@@ -114,11 +119,12 @@ const addDatetimeAttributeSafely = async (
   try {
     await databases.createDatetimeAttribute(DATABASE_ID, collectionId, key, required);
     console.log(`  ✅ Added datetime attribute: ${key}`);
-  } catch (error: any) {
-    if (error.code === 409) {
+  } catch (error: unknown) {
+    const err = error as { code?: number; message?: string };
+    if (err.code === 409) {
       console.log(`  ℹ️  Attribute ${key} already exists`);
     } else {
-      console.log(`  ⚠️  Failed to add attribute ${key}: ${error.message}`);
+      console.log(`  ⚠️  Failed to add attribute ${key}: ${err.message}`);
     }
   }
 };
@@ -133,11 +139,12 @@ const addIndexSafely = async (
   try {
     await databases.createIndex(DATABASE_ID, collectionId, key, type, attributes);
     console.log(`  ✅ Added index: ${key}`);
-  } catch (error: any) {
-    if (error.code === 409) {
+  } catch (error: unknown) {
+    const err = error as { code?: number; message?: string };
+    if (err.code === 409) {
       console.log(`  ℹ️  Index ${key} already exists`);
     } else {
-      console.log(`  ⚠️  Failed to add index ${key}: ${error.message}`);
+      console.log(`  ⚠️  Failed to add index ${key}: ${err.message}`);
     }
   }
 };
@@ -277,8 +284,9 @@ export const setupAllCollections = async (): Promise<{ success: boolean; message
 
     console.log('✅ Database setup completed successfully!');
     return { success: true, message: 'Database and all collections created successfully' };
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const err = error as { message?: string };
     console.error('❌ Database setup failed:', error);
-    return { success: false, message: `Setup failed: ${error.message}` };
+    return { success: false, message: `Setup failed: ${err.message || 'Unknown error'}` };
   }
 };

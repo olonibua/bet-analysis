@@ -1,7 +1,7 @@
 'use client';
 
 import { EventWithProbabilities } from '@/lib/types';
-import { TrendingUp, Target, Calendar, Award } from 'lucide-react';
+import { TrendingUp, Target, Calendar, Award, LucideIcon } from 'lucide-react';
 
 interface StatsOverviewProps {
   events: EventWithProbabilities[];
@@ -67,7 +67,7 @@ export function StatsOverview({ events }: StatsOverviewProps) {
 interface StatCardProps {
   label: string;
   value: string | number;
-  icon: any;
+  icon: LucideIcon;
   description: string;
 }
 
