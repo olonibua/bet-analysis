@@ -1,16 +1,10 @@
 'use client';
 
-import { EventWithProbabilities } from '@/lib/types';
+import { EventWithProbabilities, Probability } from '@/lib/types';
 import { format } from 'date-fns';
 
 interface EventCardProps {
   event: EventWithProbabilities;
-}
-
-interface Probability {
-  market: string;
-  probability: number;
-  [key: string]: unknown;
 }
 
 interface GroupedMarket {
@@ -30,7 +24,7 @@ function groupProbabilitiesByMarket(probabilities: Probability[]): GroupedMarket
 
   return Object.keys(grouped).map(market => ({
     market,
-    probabilities: grouped[market].sort((a: Probability, b: Probability) => b.probability - a.probability)
+    probabilities: grouped[market].sort((a, b) => b.probability - a.probability)
   }));
 }
 
@@ -91,7 +85,7 @@ export function EventCard({ event }: EventCardProps) {
               <div key={group.market}>
                 <h5 className="text-xs font-semibold text-gray-600 mb-2">{group.market}</h5>
                 <div className="space-y-2">
-                  {group.probabilities.map((prob: Probability & { $id: string }) => (
+                  {group.probabilities.map((prob) => (
                     <ProbabilityItem key={prob.$id} probability={prob} />
                   ))}
                 </div>
@@ -113,13 +107,13 @@ export function EventCard({ event }: EventCardProps) {
 }
 
 interface ProbabilityItemProps {
-  probability: Probability & { $id: string; confidence?: string; sampleSize?: number };
+  probability: Probability;
 }
 
 function ProbabilityItem({ probability }: ProbabilityItemProps) {
   const percentage = Math.round(probability.probability * 100);
 
-  const getConfidenceColor = (confidence: string) => {
+  const getConfidenceColor = (confidence: Probability['confidence']) => {
     switch (confidence) {
       case 'High': return 'text-green-600';
       case 'Medium': return 'text-yellow-600';
@@ -127,7 +121,7 @@ function ProbabilityItem({ probability }: ProbabilityItemProps) {
     }
   };
 
-  const getProgressBarColor = (confidence: string) => {
+  const getProgressBarColor = (confidence: Probability['confidence']) => {
     switch (confidence) {
       case 'High': return 'bg-green-500';
       case 'Medium': return 'bg-yellow-500';
