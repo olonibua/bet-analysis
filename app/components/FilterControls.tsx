@@ -56,7 +56,7 @@ export function FilterControls({ filters, onFiltersChange }: FilterControlsProps
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* League Filter */}
-        <div>
+        {/* <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
             League
           </label>
@@ -74,7 +74,7 @@ export function FilterControls({ filters, onFiltersChange }: FilterControlsProps
             </select>
             <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
           </div>
-        </div>
+        </div> */}
 
         {/* Confidence Filter */}
         <div>

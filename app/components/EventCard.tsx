@@ -29,8 +29,10 @@ function groupProbabilitiesByMarket(probabilities: Probability[]): GroupedMarket
 }
 
 export function EventCard({ event }: EventCardProps) {
-  // Get the highest probability for styling
-  const maxProbability = Math.max(...event.topProbabilities.map(p => p.probability));
+  // Get the highest probability for styling (default to 0 if no probabilities)
+  const maxProbability = event.topProbabilities.length > 0
+    ? Math.max(...event.topProbabilities.map(p => p.probability))
+    : 0;
   const isHighConfidence = maxProbability >= 0.8;
   const isMediumConfidence = maxProbability >= 0.65;
 

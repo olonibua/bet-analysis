@@ -1,597 +1,268 @@
-import { getHistoricalMatches, getTeamMatches, createProbability, deleteProbabilitiesByEvent } from './database';
-import { Match, Event, Probability, SubMarketAnalysis, MARKETS, SUB_MARKETS } from './types';
+import {
+  getHistoricalMatches,
+  getTeamMatches,
+  createProbability,
+  deleteProbabilitiesByEvent,
+} from './database';
+import { Match, Event, Probability } from './types';
+import { analyzeMatchWithAI } from './openai-analyzer';
+import { databaseRateLimiter, withRetry } from './rate-limiter';
+import { getEnhancedMatchData, getCurrentRateLimit } from './football-api';
 
-// Configuration for probability calculations
-const PROBABILITY_CONFIG = {
-  MIN_SAMPLE_SIZE: 5,          // Minimum matches needed for calculation
-  HIGH_CONFIDENCE_THRESHOLD: 0.8,  // 80%+ = High confidence
-  MEDIUM_CONFIDENCE_THRESHOLD: 0.65, // 65%+ = Medium confidence
-  RECENT_MATCH_WEIGHT: 2,      // Weight for recent matches
-  HOME_AWAY_FACTOR: 0.05,      // Home advantage factor
-  
-  // Enhanced features for paid plans
-  USE_ENHANCED_DATA: true,     // Use lineups, events, and detailed stats
-  INJURY_IMPACT_FACTOR: 0.1,   // Impact of key player injuries
-  FORM_WEIGHT_RECENT: 0.4,     // Weight for recent form (last 5 matches)
-  FORM_WEIGHT_OVERALL: 0.6,    // Weight for overall season form
-};
+/**
+ * New clean probability engine using AI-powered analysis
+ * This provides accurate predictions by:
+ * 1. Fetching historical match data for both teams
+ * 2. Using OpenAI to analyze form, trends, and context
+ * 3. Storing probabilities in the database
+ */
 
-// Main function to calculate probabilities for an event
-export const calculateEventProbabilities = async (event: Event): Promise<Probability[]> => {
-  console.log(`Calculating probabilities for: ${event.homeTeam} vs ${event.awayTeam}`);
-
-  try {
-    // Clear existing probabilities for this event
-    await deleteProbabilitiesByEvent(event.$id);
-
-    // Get historical data for both teams
-    const homeTeamMatches = await getTeamMatches(event.homeTeam, 20);
-    const awayTeamMatches = await getTeamMatches(event.awayTeam, 20);
-
-    // Calculate probabilities for each sub-market
-    let probabilities: Omit<Probability, '$id' | '$createdAt' | '$updatedAt'>[] = [];
-
-    // Always use enhanced calculation for better accuracy
-    console.log('Calculating probabilities for all available markets');
-    probabilities = await calculateEnhancedProbabilities(
-      event,
-      homeTeamMatches,
-      awayTeamMatches
-    );
-
-    // Store probabilities in database
-    const createdProbabilities: Probability[] = [];
-    for (const prob of probabilities) {
-      try {
-        const created = await createProbability(prob);
-        createdProbabilities.push(created as unknown as Probability);
-      } catch (error) {
-        console.error('Error storing probability:', error);
-      }
-    }
-
-    console.log(`Created ${createdProbabilities.length} probabilities for event ${event.$id}`);
-    return createdProbabilities;
-
-  } catch (error) {
-    console.error('Error calculating event probabilities:', error);
-    throw error;
-  }
-};
-
-// Calculate 1X2 (Home Win / Draw / Away Win) probabilities
-const calculateMainMarketProbabilities = (
-  event: Event,
-  homeMatches: Match[],
-  awayMatches: Match[],
-  headToHead: Match[]
-): Omit<Probability, '$id' | '$createdAt' | '$updatedAt'>[] => {
-
-  const homeWins = homeMatches.filter(m =>
-    (m.homeTeam === event.homeTeam && m.homeScore > m.awayScore) ||
-    (m.awayTeam === event.homeTeam && m.awayScore > m.homeScore)
-  ).length;
-
-  const homeDraws = homeMatches.filter(m => m.homeScore === m.awayScore).length;
-
-  const awayWins = awayMatches.filter(m =>
-    (m.homeTeam === event.awayTeam && m.homeScore > m.awayScore) ||
-    (m.awayTeam === event.awayTeam && m.awayScore > m.homeScore)
-  ).length;
-
-  const awayDraws = awayMatches.filter(m => m.homeScore === m.awayScore).length;
-
-  const totalHomeMatches = homeMatches.length;
-  const totalAwayMatches = awayMatches.length;
-  const totalMatches = Math.max(totalHomeMatches, totalAwayMatches, PROBABILITY_CONFIG.MIN_SAMPLE_SIZE);
-
-  // Calculate basic probabilities
-  const homeWinProb = totalHomeMatches > 0 ? homeWins / totalHomeMatches : 0.33;
-  const awayWinProb = totalAwayMatches > 0 ? awayWins / totalAwayMatches : 0.33;
-  const drawProb = totalMatches > 0 ? (homeDraws + awayDraws) / totalMatches : 0.34;
-
-  // Apply home advantage
-  const adjustedHomeWinProb = Math.min(0.9, homeWinProb + PROBABILITY_CONFIG.HOME_AWAY_FACTOR);
-  const adjustedAwayWinProb = Math.max(0.1, awayWinProb - PROBABILITY_CONFIG.HOME_AWAY_FACTOR);
-
-  // Normalize probabilities
-  const total = adjustedHomeWinProb + drawProb + adjustedAwayWinProb;
-  const normalizedHomeWin = adjustedHomeWinProb / total;
-  const normalizedDraw = drawProb / total;
-  const normalizedAwayWin = adjustedAwayWinProb / total;
-
-  return [
-    {
-      eventId: event.$id,
-      market: MARKETS.MAIN,
-      subMarket: SUB_MARKETS.HOME_WIN,
-      probability: normalizedHomeWin,
-      confidence: getConfidenceLevel(normalizedHomeWin, totalHomeMatches),
-      sampleSize: totalHomeMatches,
-      lastCalculated: new Date().toISOString(),
-    },
-    {
-      eventId: event.$id,
-      market: MARKETS.MAIN,
-      subMarket: SUB_MARKETS.DRAW,
-      probability: normalizedDraw,
-      confidence: getConfidenceLevel(normalizedDraw, totalMatches),
-      sampleSize: totalMatches,
-      lastCalculated: new Date().toISOString(),
-    },
-    {
-      eventId: event.$id,
-      market: MARKETS.MAIN,
-      subMarket: SUB_MARKETS.AWAY_WIN,
-      probability: normalizedAwayWin,
-      confidence: getConfidenceLevel(normalizedAwayWin, totalAwayMatches),
-      sampleSize: totalAwayMatches,
-      lastCalculated: new Date().toISOString(),
-    }
-  ];
-};
-
-// Calculate Over/Under Goals probabilities
-const calculateOverUnderProbabilities = (
-  event: Event,
-  homeMatches: Match[],
-  awayMatches: Match[],
-  headToHead: Match[]
-): Omit<Probability, '$id' | '$createdAt' | '$updatedAt'>[] => {
-
-  const allMatches = [...homeMatches, ...awayMatches];
-  const totalMatches = allMatches.length;
-
-  if (totalMatches < PROBABILITY_CONFIG.MIN_SAMPLE_SIZE) {
-    return [];
-  }
-
-  // Calculate over/under statistics
-  const over1_5 = allMatches.filter(m => (m.homeScore + m.awayScore) > 1.5).length;
-  const over2_5 = allMatches.filter(m => (m.homeScore + m.awayScore) > 2.5).length;
-  const over3_5 = allMatches.filter(m => (m.homeScore + m.awayScore) > 3.5).length;
-
-  const over1_5Prob = over1_5 / totalMatches;
-  const over2_5Prob = over2_5 / totalMatches;
-  const over3_5Prob = over3_5 / totalMatches;
-
-  return [
-    {
-      eventId: event.$id,
-      market: MARKETS.OVER_UNDER,
-      subMarket: SUB_MARKETS.OVER_1_5,
-      probability: over1_5Prob,
-      confidence: getConfidenceLevel(over1_5Prob, totalMatches),
-      sampleSize: totalMatches,
-      lastCalculated: new Date().toISOString(),
-    },
-    {
-      eventId: event.$id,
-      market: MARKETS.OVER_UNDER,
-      subMarket: SUB_MARKETS.UNDER_1_5,
-      probability: 1 - over1_5Prob,
-      confidence: getConfidenceLevel(1 - over1_5Prob, totalMatches),
-      sampleSize: totalMatches,
-      lastCalculated: new Date().toISOString(),
-    },
-    {
-      eventId: event.$id,
-      market: MARKETS.OVER_UNDER,
-      subMarket: SUB_MARKETS.OVER_2_5,
-      probability: over2_5Prob,
-      confidence: getConfidenceLevel(over2_5Prob, totalMatches),
-      sampleSize: totalMatches,
-      lastCalculated: new Date().toISOString(),
-    },
-    {
-      eventId: event.$id,
-      market: MARKETS.OVER_UNDER,
-      subMarket: SUB_MARKETS.UNDER_2_5,
-      probability: 1 - over2_5Prob,
-      confidence: getConfidenceLevel(1 - over2_5Prob, totalMatches),
-      sampleSize: totalMatches,
-      lastCalculated: new Date().toISOString(),
-    },
-    {
-      eventId: event.$id,
-      market: MARKETS.OVER_UNDER,
-      subMarket: SUB_MARKETS.OVER_3_5,
-      probability: over3_5Prob,
-      confidence: getConfidenceLevel(over3_5Prob, totalMatches),
-      sampleSize: totalMatches,
-      lastCalculated: new Date().toISOString(),
-    },
-    {
-      eventId: event.$id,
-      market: MARKETS.OVER_UNDER,
-      subMarket: SUB_MARKETS.UNDER_3_5,
-      probability: 1 - over3_5Prob,
-      confidence: getConfidenceLevel(1 - over3_5Prob, totalMatches),
-      sampleSize: totalMatches,
-      lastCalculated: new Date().toISOString(),
-    }
-  ];
-};
-
-// Calculate Both Teams to Score probabilities
-const calculateBTTSProbabilities = (
-  event: Event,
-  homeMatches: Match[],
-  awayMatches: Match[],
-  headToHead: Match[]
-): Omit<Probability, '$id' | '$createdAt' | '$updatedAt'>[] => {
-
-  const allMatches = [...homeMatches, ...awayMatches];
-  const totalMatches = allMatches.length;
-
-  if (totalMatches < PROBABILITY_CONFIG.MIN_SAMPLE_SIZE) {
-    return [];
-  }
-
-  const bttsYes = allMatches.filter(m => m.homeScore > 0 && m.awayScore > 0).length;
-  const bttsYesProb = bttsYes / totalMatches;
-
-  return [
-    {
-      eventId: event.$id,
-      market: MARKETS.BOTH_TEAMS,
-      subMarket: SUB_MARKETS.BTTS_YES,
-      probability: bttsYesProb,
-      confidence: getConfidenceLevel(bttsYesProb, totalMatches),
-      sampleSize: totalMatches,
-      lastCalculated: new Date().toISOString(),
-    },
-    {
-      eventId: event.$id,
-      market: MARKETS.BOTH_TEAMS,
-      subMarket: SUB_MARKETS.BTTS_NO,
-      probability: 1 - bttsYesProb,
-      confidence: getConfidenceLevel(1 - bttsYesProb, totalMatches),
-      sampleSize: totalMatches,
-      lastCalculated: new Date().toISOString(),
-    }
-  ];
-};
-
-// Determine confidence level based on probability and sample size
-const getConfidenceLevel = (probability: number, sampleSize: number): 'High' | 'Medium' | 'Low' => {
-  if (sampleSize < PROBABILITY_CONFIG.MIN_SAMPLE_SIZE) {
-    return 'Low';
-  }
-
-  if (probability >= PROBABILITY_CONFIG.HIGH_CONFIDENCE_THRESHOLD && sampleSize >= 15) {
-    return 'High';
-  }
-
-  if (probability >= PROBABILITY_CONFIG.MEDIUM_CONFIDENCE_THRESHOLD && sampleSize >= 10) {
-    return 'Medium';
-  }
-
-  return 'Low';
-};
-
-// Batch calculate probabilities for multiple events
-export const calculateBatchProbabilities = async (events: Event[]): Promise<{
+export interface ProbabilityCalculationResult {
   success: boolean;
   processed: number;
   errors: string[];
-}> => {
-  console.log(`Starting batch probability calculation for ${events.length} events`);
+}
 
-  let processed = 0;
+/**
+ * Calculate probabilities for a single event using AI analysis
+ */
+export async function calculateEventProbabilities(
+  event: Event
+): Promise<Probability[]> {
+  console.log(
+    `🤖 Analyzing: ${event.homeTeam} vs ${event.awayTeam} (${event.league})`
+  );
+
+  try {
+    // Step 1: Clear existing probabilities
+    await deleteProbabilitiesByEvent(event.$id);
+    console.log('  ✓ Cleared existing probabilities');
+
+    // Step 2: Fetch historical data
+    console.log('  📊 Fetching historical data...');
+    const [homeMatches, awayMatches, headToHead] = await Promise.all([
+      getTeamMatches(event.homeTeam, 20),
+      getTeamMatches(event.awayTeam, 20),
+      getHistoricalMatches(event.homeTeam, event.awayTeam, 10),
+    ]);
+
+    console.log(
+      `  ✓ Data: ${homeMatches.length} home matches, ${awayMatches.length} away matches, ${headToHead.length} H2H`
+    );
+
+    // Step 2.5: Fetch DEEP_DATA for recent matches (lineups, player stats, bookings)
+    console.log('  📦 Fetching DEEP_DATA for recent matches...');
+    const enhancedData = [];
+
+    // Get enhanced data for last 5 home team matches (with rate limiting)
+    const recentHomeMatches = homeMatches.slice(0, 5);
+    for (let i = 0; i < recentHomeMatches.length; i++) {
+      const match = recentHomeMatches[i];
+      if (match.externalId) {
+        try {
+          const enhanced = await getEnhancedMatchData(parseInt(match.externalId));
+          if (enhanced) {
+            enhancedData.push({
+              matchId: match.externalId,
+              homeTeam: match.homeTeam,
+              awayTeam: match.awayTeam,
+              ...enhanced
+            });
+          }
+
+          // Rate limiting for DEEP_DATA plan (30 calls/min = 2s delay)
+          if (i < recentHomeMatches.length - 1) {
+            const rateLimit = getCurrentRateLimit();
+            await new Promise(resolve => setTimeout(resolve, rateLimit.delayMs));
+          }
+        } catch (error) {
+          console.log(`  ⚠️  Could not fetch DEEP_DATA for match ${match.externalId}`);
+        }
+      }
+    }
+
+    // Get enhanced data for last 5 away team matches (with rate limiting)
+    const recentAwayMatches = awayMatches.slice(0, 5);
+    for (let i = 0; i < recentAwayMatches.length; i++) {
+      const match = recentAwayMatches[i];
+      if (match.externalId) {
+        try {
+          const enhanced = await getEnhancedMatchData(parseInt(match.externalId));
+          if (enhanced) {
+            enhancedData.push({
+              matchId: match.externalId,
+              homeTeam: match.homeTeam,
+              awayTeam: match.awayTeam,
+              ...enhanced
+            });
+          }
+
+          // Rate limiting
+          if (i < recentAwayMatches.length - 1) {
+            const rateLimit = getCurrentRateLimit();
+            await new Promise(resolve => setTimeout(resolve, rateLimit.delayMs));
+          }
+        } catch (error) {
+          console.log(`  ⚠️  Could not fetch DEEP_DATA for match ${match.externalId}`);
+        }
+      }
+    }
+
+    console.log(`  ✓ DEEP_DATA fetched for ${enhancedData.length} matches`);
+
+    // Step 3: Use AI to analyze and get probabilities (now with DEEP_DATA)
+    console.log('  🧠 Running AI analysis with DEEP_DATA...');
+    const analysis = await analyzeMatchWithAI(
+      event.homeTeam,
+      event.awayTeam,
+      homeMatches,
+      awayMatches,
+      headToHead,
+      enhancedData
+    );
+
+    console.log(`  ✓ AI analysis complete (Confidence: ${analysis.confidence})`);
+
+    // Step 4: Convert AI analysis to probability objects
+    const now = new Date().toISOString();
+    const probabilities: Omit<
+      Probability,
+      '$id' | '$createdAt' | '$updatedAt'
+    >[] = [
+      // Match Result Market
+      {
+        eventId: event.$id,
+        market: 'Match Result',
+        subMarket: 'Home Win',
+        probability: analysis.winProbability,
+        confidence: analysis.confidence,
+        sampleSize: homeMatches.length + headToHead.length,
+        lastCalculated: now,
+      },
+      {
+        eventId: event.$id,
+        market: 'Match Result',
+        subMarket: 'Draw',
+        probability: analysis.drawProbability,
+        confidence: analysis.confidence,
+        sampleSize: homeMatches.length + awayMatches.length,
+        lastCalculated: now,
+      },
+      {
+        eventId: event.$id,
+        market: 'Match Result',
+        subMarket: 'Away Win',
+        probability: analysis.lossProbability,
+        confidence: analysis.confidence,
+        sampleSize: awayMatches.length + headToHead.length,
+        lastCalculated: now,
+      },
+
+      // Over/Under 2.5 Goals Market
+      {
+        eventId: event.$id,
+        market: 'Over/Under 2.5',
+        subMarket: 'Over 2.5',
+        probability: analysis.over25Probability,
+        confidence: analysis.confidence,
+        sampleSize: homeMatches.length + awayMatches.length,
+        lastCalculated: now,
+      },
+      {
+        eventId: event.$id,
+        market: 'Over/Under 2.5',
+        subMarket: 'Under 2.5',
+        probability: analysis.under25Probability,
+        confidence: analysis.confidence,
+        sampleSize: homeMatches.length + awayMatches.length,
+        lastCalculated: now,
+      },
+
+      // Both Teams to Score Market
+      {
+        eventId: event.$id,
+        market: 'Both Teams to Score',
+        subMarket: 'Yes',
+        probability: analysis.bttsYesProbability,
+        confidence: analysis.confidence,
+        sampleSize: homeMatches.length + awayMatches.length,
+        lastCalculated: now,
+      },
+      {
+        eventId: event.$id,
+        market: 'Both Teams to Score',
+        subMarket: 'No',
+        probability: analysis.bttsNoProbability,
+        confidence: analysis.confidence,
+        sampleSize: homeMatches.length + awayMatches.length,
+        lastCalculated: now,
+      },
+    ];
+
+    // Step 5: Save to database with rate limiting
+    console.log('  💾 Saving probabilities...');
+    const createdProbabilities: Probability[] = [];
+
+    for (const prob of probabilities) {
+      try {
+        await databaseRateLimiter.waitIfNeeded();
+        const created = (await withRetry(() =>
+          createProbability(prob)
+        )) as unknown as Probability;
+        createdProbabilities.push(created);
+      } catch (error) {
+        console.error('  ✗ Error saving probability:', error);
+      }
+    }
+
+    console.log(
+      `  ✅ Complete: ${createdProbabilities.length} probabilities saved`
+    );
+    console.log(`  💡 AI Reasoning: ${analysis.reasoning}\n`);
+
+    return createdProbabilities;
+  } catch (error) {
+    console.error('❌ Error calculating probabilities:', error);
+    throw error;
+  }
+}
+
+/**
+ * Calculate probabilities for multiple events (batch processing)
+ * Respects rate limits and provides progress updates
+ */
+export async function calculateBatchProbabilities(
+  events: Event[]
+): Promise<ProbabilityCalculationResult> {
   const errors: string[] = [];
+  let processed = 0;
+
+  console.log(`\n🚀 Starting batch probability calculation for ${events.length} events\n`);
 
   for (const event of events) {
     try {
       await calculateEventProbabilities(event);
       processed++;
-      console.log(`Processed ${processed}/${events.length}: ${event.homeTeam} vs ${event.awayTeam}`);
 
-      // Add small delay to prevent overwhelming the database
-      await new Promise(resolve => setTimeout(resolve, 200));
-
+      // Rate limiting: Wait between events to respect Appwrite limits
+      if (processed < events.length) {
+        console.log('⏳ Waiting 5 seconds before next event (rate limit)...\n');
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+      }
     } catch (error) {
-      const errorMsg = `Failed to calculate probabilities for ${event.homeTeam} vs ${event.awayTeam}: ${error}`;
-      console.error(errorMsg);
+      const errorMsg = `Failed to calculate probabilities for ${event.homeTeam} vs ${event.awayTeam}: ${
+        error instanceof Error ? error.message : 'Unknown error'
+      }`;
+      console.error(`❌ ${errorMsg}\n`);
       errors.push(errorMsg);
     }
   }
 
-  const success = errors.length === 0;
-  console.log(`Batch calculation completed. Processed: ${processed}, Errors: ${errors.length}`);
-
-  return { success, processed, errors };
-};
-
-// Get sub-market analysis for a specific market type
-export const getSubMarketAnalysis = async (
-  homeTeam: string,
-  awayTeam: string,
-  market: string
-): Promise<SubMarketAnalysis[]> => {
-  try {
-    const homeMatches = await getTeamMatches(homeTeam, 20);
-    const awayMatches = await getTeamMatches(awayTeam, 20);
-    const allMatches = [...homeMatches, ...awayMatches];
-
-    if (allMatches.length < PROBABILITY_CONFIG.MIN_SAMPLE_SIZE) {
-      return [];
-    }
-
-    const analysis: SubMarketAnalysis[] = [];
-
-    // Analyze based on market type
-    if (market === MARKETS.OVER_UNDER) {
-      const over2_5 = allMatches.filter(m => (m.homeScore + m.awayScore) > 2.5).length;
-      const over2_5Prob = over2_5 / allMatches.length;
-
-      analysis.push({
-        market: MARKETS.OVER_UNDER,
-        subMarket: SUB_MARKETS.OVER_2_5,
-        occurrences: over2_5,
-        totalMatches: allMatches.length,
-        probability: over2_5Prob,
-        confidence: getConfidenceLevel(over2_5Prob, allMatches.length)
-      });
-    }
-
-    return analysis;
-  } catch (error) {
-    console.error('Error in sub-market analysis:', error);
-    return [];
-  }
-};
-
-// Enhanced team form analysis using paid plan data
-export const analyzeTeamForm = async (teamName: string, recentMatches: Match[]): Promise<{
-  recentForm: number; // 0-1 score for recent performance
-  overallForm: number; // 0-1 score for overall performance
-  keyPlayerImpact: number; // Impact of key players (injuries, form)
-  attackingForm: number; // Goals scored trend
-  defensiveForm: number; // Goals conceded trend
-}> => {
-  if (recentMatches.length < 3) {
-    return {
-      recentForm: 0.5,
-      overallForm: 0.5,
-      keyPlayerImpact: 0,
-      attackingForm: 0.5,
-      defensiveForm: 0.5
-    };
-  }
-
-  // Analyze recent form (last 5 matches)
-  const recentMatches_5 = recentMatches.slice(0, 5);
-  const recentWins = recentMatches_5.filter(m => 
-    (m.homeTeam === teamName && m.homeScore > m.awayScore) ||
-    (m.awayTeam === teamName && m.awayScore > m.homeScore)
-  ).length;
-  const recentForm = recentWins / recentMatches_5.length;
-
-  // Analyze overall form (all matches)
-  const totalWins = recentMatches.filter(m => 
-    (m.homeTeam === teamName && m.homeScore > m.awayScore) ||
-    (m.awayTeam === teamName && m.awayScore > m.homeScore)
-  ).length;
-  const overallForm = totalWins / recentMatches.length;
-
-  // Analyze attacking form (goals scored trend)
-  const teamMatches = recentMatches.filter(m => 
-    m.homeTeam === teamName || m.awayTeam === teamName
-  );
-  const goalsScored = teamMatches.map(m => 
-    m.homeTeam === teamName ? m.homeScore : m.awayScore
-  );
-  const avgGoalsScored = goalsScored.reduce((sum, goals) => sum + goals, 0) / goalsScored.length;
-  const attackingForm = Math.min(1, avgGoalsScored / 2); // Normalize to 0-1
-
-  // Analyze defensive form (goals conceded trend)
-  const goalsConceded = teamMatches.map(m => 
-    m.homeTeam === teamName ? m.awayScore : m.homeScore
-  );
-  const avgGoalsConceded = goalsConceded.reduce((sum, goals) => sum + goals, 0) / goalsConceded.length;
-  const defensiveForm = Math.max(0, 1 - (avgGoalsConceded / 2)); // Invert and normalize
+  console.log(`\n✅ Batch complete: ${processed}/${events.length} events processed\n`);
 
   return {
-    recentForm,
-    overallForm,
-    keyPlayerImpact: 0, // TODO: Implement with squad data
-    attackingForm,
-    defensiveForm
+    success: errors.length === 0,
+    processed,
+    errors,
   };
-};
-
-// Enhanced probability calculation with form analysis
-const calculateEnhancedProbabilities = async (
-  event: Event,
-  homeMatches: Match[],
-  awayMatches: Match[]
-): Promise<Omit<Probability, '$id' | '$createdAt' | '$updatedAt'>[]> => {
-  const probabilities: Omit<Probability, '$id' | '$createdAt' | '$updatedAt'>[] = [];
-
-  // Analyze team forms
-  const homeForm = await analyzeTeamForm(event.homeTeam, homeMatches);
-  const awayForm = await analyzeTeamForm(event.awayTeam, awayMatches);
-
-  // Enhanced 1X2 calculation with form analysis
-  const homeAdvantage = PROBABILITY_CONFIG.HOME_AWAY_FACTOR;
-  const formDifference = (homeForm.recentForm - awayForm.recentForm) * 0.1;
-  
-  // Base probabilities from historical data
-  const homeWins = homeMatches.filter(m =>
-    (m.homeTeam === event.homeTeam && m.homeScore > m.awayScore) ||
-    (m.awayTeam === event.homeTeam && m.awayScore > m.homeScore)
-  ).length;
-  const awayWins = awayMatches.filter(m =>
-    (m.homeTeam === event.awayTeam && m.homeScore > m.awayScore) ||
-    (m.awayTeam === event.awayTeam && m.awayScore > m.homeScore)
-  ).length;
-  const draws = homeMatches.filter(m => m.homeScore === m.awayScore).length;
-
-  const totalMatches = Math.max(homeMatches.length, awayMatches.length, PROBABILITY_CONFIG.MIN_SAMPLE_SIZE);
-  
-  // Enhanced probability calculation
-  let homeWinProb = (homeWins / totalMatches) + homeAdvantage + formDifference;
-  let awayWinProb = (awayWins / totalMatches) - homeAdvantage - formDifference;
-  let drawProb = draws / totalMatches;
-
-  // Normalize probabilities
-  const total = homeWinProb + awayWinProb + drawProb;
-  homeWinProb = Math.max(0.1, Math.min(0.8, homeWinProb / total));
-  awayWinProb = Math.max(0.1, Math.min(0.8, awayWinProb / total));
-  drawProb = Math.max(0.1, Math.min(0.8, drawProb / total));
-
-  // Re-normalize to ensure they sum to 1
-  const finalTotal = homeWinProb + awayWinProb + drawProb;
-  homeWinProb /= finalTotal;
-  awayWinProb /= finalTotal;
-  drawProb /= finalTotal;
-
-  probabilities.push(
-    {
-      eventId: event.$id,
-      market: MARKETS.MAIN,
-      subMarket: SUB_MARKETS.HOME_WIN,
-      probability: homeWinProb,
-      confidence: getConfidenceLevel(homeWinProb, totalMatches),
-      sampleSize: totalMatches,
-      lastCalculated: new Date().toISOString(),
-    },
-    {
-      eventId: event.$id,
-      market: MARKETS.MAIN,
-      subMarket: SUB_MARKETS.DRAW,
-      probability: drawProb,
-      confidence: getConfidenceLevel(drawProb, totalMatches),
-      sampleSize: totalMatches,
-      lastCalculated: new Date().toISOString(),
-    },
-    {
-      eventId: event.$id,
-      market: MARKETS.MAIN,
-      subMarket: SUB_MARKETS.AWAY_WIN,
-      probability: awayWinProb,
-      confidence: getConfidenceLevel(awayWinProb, totalMatches),
-      sampleSize: totalMatches,
-      lastCalculated: new Date().toISOString(),
-    }
-  );
-
-  // Enhanced Over/Under calculation with attacking/defensive form
-  const allMatches = [...homeMatches, ...awayMatches];
-  if (allMatches.length >= PROBABILITY_CONFIG.MIN_SAMPLE_SIZE) {
-    const avgGoals = allMatches.reduce((sum, m) => sum + m.homeScore + m.awayScore, 0) / allMatches.length;
-    
-    // Adjust based on attacking/defensive form
-    const formAdjustedAvg = avgGoals + 
-      (homeForm.attackingForm + awayForm.attackingForm - homeForm.defensiveForm - awayForm.defensiveForm) * 0.5;
-
-    // Calculate over/under probabilities based on adjusted average
-    const over1_5Prob = Math.min(0.95, Math.max(0.05, 1 - Math.exp(-formAdjustedAvg * 0.8)));
-    const over2_5Prob = Math.min(0.9, Math.max(0.05, 1 - Math.exp(-formAdjustedAvg * 0.6)));
-    const over3_5Prob = Math.min(0.8, Math.max(0.05, 1 - Math.exp(-formAdjustedAvg * 0.4)));
-
-    probabilities.push(
-      {
-        eventId: event.$id,
-        market: MARKETS.OVER_UNDER,
-        subMarket: SUB_MARKETS.OVER_1_5,
-        probability: over1_5Prob,
-        confidence: getConfidenceLevel(over1_5Prob, allMatches.length),
-        sampleSize: allMatches.length,
-        lastCalculated: new Date().toISOString(),
-      },
-      {
-        eventId: event.$id,
-        market: MARKETS.OVER_UNDER,
-        subMarket: SUB_MARKETS.UNDER_1_5,
-        probability: 1 - over1_5Prob,
-        confidence: getConfidenceLevel(1 - over1_5Prob, allMatches.length),
-        sampleSize: allMatches.length,
-        lastCalculated: new Date().toISOString(),
-      },
-      {
-        eventId: event.$id,
-        market: MARKETS.OVER_UNDER,
-        subMarket: SUB_MARKETS.OVER_2_5,
-        probability: over2_5Prob,
-        confidence: getConfidenceLevel(over2_5Prob, allMatches.length),
-        sampleSize: allMatches.length,
-        lastCalculated: new Date().toISOString(),
-      },
-      {
-        eventId: event.$id,
-        market: MARKETS.OVER_UNDER,
-        subMarket: SUB_MARKETS.UNDER_2_5,
-        probability: 1 - over2_5Prob,
-        confidence: getConfidenceLevel(1 - over2_5Prob, allMatches.length),
-        sampleSize: allMatches.length,
-        lastCalculated: new Date().toISOString(),
-      },
-      {
-        eventId: event.$id,
-        market: MARKETS.OVER_UNDER,
-        subMarket: SUB_MARKETS.OVER_3_5,
-        probability: over3_5Prob,
-        confidence: getConfidenceLevel(over3_5Prob, allMatches.length),
-        sampleSize: allMatches.length,
-        lastCalculated: new Date().toISOString(),
-      },
-      {
-        eventId: event.$id,
-        market: MARKETS.OVER_UNDER,
-        subMarket: SUB_MARKETS.UNDER_3_5,
-        probability: 1 - over3_5Prob,
-        confidence: getConfidenceLevel(1 - over3_5Prob, allMatches.length),
-        sampleSize: allMatches.length,
-        lastCalculated: new Date().toISOString(),
-      }
-    );
-  }
-
-  // Add BTTS calculation
-  const bttsProbs = calculateBTTSProbabilities(
-    event,
-    homeMatches,
-    awayMatches,
-    []
-  );
-  probabilities.push(...bttsProbs);
-
-  return probabilities;
-};
-
-// Utility function to get probability statistics
-export const getProbabilityStats = async () => {
-  try {
-    const { databases, DATABASE_ID, COLLECTIONS } = await import('./appwrite');
-    const { Query } = await import('appwrite');
-
-    const highConfProbs = await databases.listDocuments(
-      DATABASE_ID,
-      COLLECTIONS.PROBABILITIES,
-      [Query.equal('confidence', 'High')]
-    );
-
-    const mediumConfProbs = await databases.listDocuments(
-      DATABASE_ID,
-      COLLECTIONS.PROBABILITIES,
-      [Query.equal('confidence', 'Medium')]
-    );
-
-    return {
-      totalProbabilities: highConfProbs.total + mediumConfProbs.total,
-      highConfidence: highConfProbs.total,
-      mediumConfidence: mediumConfProbs.total,
-      lastUpdate: new Date().toISOString(),
-    };
-  } catch (error) {
-    console.error('Error getting probability stats:', error);
-    return {
-      totalProbabilities: 0,
-      highConfidence: 0,
-      mediumConfidence: 0,
-      error: String(error)
-    };
-  }
-};
+}

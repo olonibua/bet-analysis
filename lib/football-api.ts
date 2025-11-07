@@ -178,7 +178,7 @@ export const convertFixtureToEvent = (fixture: FootballDataFixture): Omit<Event,
   return {
     homeTeam: fixture.homeTeam.name,
     awayTeam: fixture.awayTeam.name,
-    league: fixture.competition.name,
+    league: fixture.competition.name, // Use full name for simplicity
     datetime: fixture.utcDate,
     venue: '', // Football-data API doesn't always provide venue in free tier
     status,
@@ -196,7 +196,7 @@ export const convertMatchToMatch = (match: FootballDataMatch): Omit<Match, '$id'
     homeScore: match.score.fullTime.home,
     awayScore: match.score.fullTime.away,
     date: match.utcDate,
-    league: match.competition.name,
+    league: match.competition.name, // Use full name for simplicity
     externalId: match.id.toString(), // Store external match ID for enhanced data fetching
     hasEnhancedData: false, // Will be updated when enhanced data is fetched
     statistics: JSON.stringify({
@@ -408,6 +408,52 @@ export const getTeamSquad = async (teamId: number): Promise<Player[]> => {
   } catch (error) {
     console.error(`Error fetching squad for team ${teamId}:`, error);
     return [];
+  }
+};
+
+// Get comprehensive match data including DEEP_DATA features
+export const getEnhancedMatchData = async (matchId: number): Promise<{
+  lineup: MatchLineup | null;
+  events: MatchEvent[];
+  statistics: {
+    homeYellowCards: number;
+    awayYellowCards: number;
+    totalYellowCards: number;
+    homeRedCards: number;
+    awayRedCards: number;
+    totalRedCards: number;
+    homeGoals: number;
+    awayGoals: number;
+    homeSubstitutions: number;
+    awaySubstitutions: number;
+    goalScorers: Array<{ player: string; team: string; minute: number }>;
+    yellowCards: Array<{ player: string; team: string; minute: number }>;
+    redCards: Array<{ player: string; team: string; minute: number }>;
+    substitutions: Array<{ playerIn: string; playerOut: string; team: string; minute: number }>;
+  } | null;
+} | null> => {
+  try {
+    console.log(`  📦 Fetching DEEP_DATA for match ${matchId}...`);
+
+    // Fetch lineup and events in parallel
+    const [lineup, events] = await Promise.all([
+      getMatchLineup(matchId),
+      getMatchEvents(matchId)
+    ]);
+
+    // Calculate statistics from events
+    const statistics = await getEnhancedMatchStatistics(matchId);
+
+    console.log(`  ✅ DEEP_DATA fetched: Lineup=${lineup ? 'Yes' : 'No'}, Events=${events.length}, Stats=${statistics ? 'Yes' : 'No'}`);
+
+    return {
+      lineup,
+      events,
+      statistics
+    };
+  } catch (error) {
+    console.error(`  ❌ Error fetching DEEP_DATA for match ${matchId}:`, error);
+    return null;
   }
 };
 

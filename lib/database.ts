@@ -1,6 +1,7 @@
 import { ID, Query } from 'appwrite';
 import { serverDatabases as databases, DATABASE_ID, COLLECTIONS } from './appwrite';
 import { Event, Match, Probability, Team, EventWithProbabilities } from './types';
+import { databaseRateLimiter, withRetry } from './rate-limiter';
 
 // Event operations
 export const createEvent = async (eventData: Omit<Event, '$id' | '$createdAt' | '$updatedAt'>) => {
@@ -261,10 +262,19 @@ export const updateEventStatus = async (eventId: string, status: Event['status']
 export const deleteProbabilitiesByEvent = async (eventId: string) => {
   try {
     const probabilities = await getProbabilitiesByEvent(eventId);
-    const deletePromises = probabilities.map(prob =>
-      databases.deleteDocument(DATABASE_ID, COLLECTIONS.PROBABILITIES, prob.$id)
-    );
-    await Promise.all(deletePromises);
+
+    // Delete probabilities sequentially with rate limiting (not in parallel)
+    for (const prob of probabilities) {
+      try {
+        await databaseRateLimiter.waitIfNeeded();
+        await withRetry(() =>
+          databases.deleteDocument(DATABASE_ID, COLLECTIONS.PROBABILITIES, prob.$id)
+        );
+      } catch (error) {
+        console.error(`Error deleting probability ${prob.$id}:`, error);
+        // Continue with next deletion instead of failing
+      }
+    }
   } catch (error) {
     console.error('Error deleting probabilities:', error);
     throw error;
