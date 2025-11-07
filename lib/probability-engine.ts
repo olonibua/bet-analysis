@@ -3,8 +3,9 @@ import {
   getTeamMatches,
   createProbability,
   deleteProbabilitiesByEvent,
+  getProbabilitiesByEvent,
 } from './database';
-import { Match, Event, Probability } from './types';
+import { Event, Probability } from './types';
 import { analyzeMatchWithAI } from './openai-analyzer';
 import { databaseRateLimiter, withRetry } from './rate-limiter';
 import { getEnhancedMatchData, getCurrentRateLimit } from './football-api';
@@ -27,18 +28,51 @@ export interface ProbabilityCalculationResult {
  * Calculate probabilities for a single event using AI analysis
  */
 export async function calculateEventProbabilities(
-  event: Event
+  event: Event,
+  forceRecalculate = false
 ): Promise<Probability[]> {
   console.log(
     `🤖 Analyzing: ${event.homeTeam} vs ${event.awayTeam} (${event.league})`
   );
 
   try {
-    // Step 1: Clear existing probabilities
-    await deleteProbabilitiesByEvent(event.$id);
-    console.log('  ✓ Cleared existing probabilities');
+    // Step 1: Smart cache validation
+    if (!forceRecalculate) {
+      const existingProbs = await getProbabilitiesByEvent(event.$id);
+      if (existingProbs.length > 0) {
+        const lastCalculated = new Date(existingProbs[0].lastCalculated);
+        const now = new Date();
+        const hoursSinceCalculation = (now.getTime() - lastCalculated.getTime()) / (1000 * 60 * 60);
+        const matchTime = new Date(event.datetime);
+        const hoursUntilMatch = (matchTime.getTime() - now.getTime()) / (1000 * 60 * 60);
 
-    // Step 2: Fetch historical data
+        // Cache invalidation rules (industry standard):
+        // 1. If match is within 24 hours, cache only valid for 6 hours (data changes fast)
+        // 2. If match is 1-3 days away, cache valid for 12 hours
+        // 3. If match is 3+ days away, cache valid for 24 hours
+        let cacheValidityHours = 24;
+        if (hoursUntilMatch <= 24) {
+          cacheValidityHours = 6;
+        } else if (hoursUntilMatch <= 72) {
+          cacheValidityHours = 12;
+        }
+
+        if (hoursSinceCalculation < cacheValidityHours) {
+          console.log(`  ✅ Using cached probabilities (calculated ${Math.round(hoursSinceCalculation)}h ago, valid for ${cacheValidityHours}h)`);
+          return existingProbs;
+        } else {
+          console.log(`  ⚠️  Cache expired (${Math.round(hoursSinceCalculation)}h old, max ${cacheValidityHours}h for match in ${Math.round(hoursUntilMatch)}h)`);
+        }
+      }
+    } else {
+      console.log('  🔄 Force recalculating (bypassing cache)...');
+    }
+
+    // Step 2: Clear existing probabilities (they're stale)
+    await deleteProbabilitiesByEvent(event.$id);
+    console.log('  ✓ Cleared stale probabilities');
+
+    // Step 3: Fetch historical data
     console.log('  📊 Fetching historical data...');
     const [homeMatches, awayMatches, headToHead] = await Promise.all([
       getTeamMatches(event.homeTeam, 20),

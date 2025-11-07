@@ -120,7 +120,7 @@ Use the historical data above to support your answer. Be specific with numbers a
           content: prompt,
         },
       ],
-      temperature: 0.7,
+      temperature: 0.3,
       max_tokens: 200,
     });
 

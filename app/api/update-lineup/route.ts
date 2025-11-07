@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
     // Re-calculate probabilities with the actual lineup data
     // The probability engine will now have access to the real lineup
     console.log(`🤖 Re-calculating predictions with actual lineup...`);
-    await calculateEventProbabilities(event);
+    await calculateEventProbabilities(event, true); // Force recalculate (bypass cache)
 
     console.log(`✅ Predictions updated with actual lineup!`);
 
