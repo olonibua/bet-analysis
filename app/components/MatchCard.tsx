@@ -3,6 +3,7 @@
 import { EventWithProbabilities, Probability } from '@/lib/types';
 import { format } from 'date-fns';
 import { useState } from 'react';
+import { MatchChat } from './MatchChat';
 
 interface MatchCardProps {
   match: EventWithProbabilities;
@@ -85,6 +86,8 @@ function PredictionSection({ title, probabilities }: PredictionSectionProps) {
 }
 
 export function MatchCard({ match }: MatchCardProps) {
+  const [isUpdating, setIsUpdating] = useState(false);
+
   // Find the highest probability prediction
   const topPrediction = match.topProbabilities[0];
   const hasProb = match.topProbabilities.length > 0;
@@ -93,6 +96,33 @@ export function MatchCard({ match }: MatchCardProps) {
   const maxProb = hasProb ? Math.max(...match.topProbabilities.map(p => p.probability)) : 0;
   const isHighConfidence = maxProb >= 0.75;
   const isMediumConfidence = maxProb >= 0.60;
+
+  // Check if match is within 1 hour of kickoff
+  const matchTime = new Date(match.datetime);
+  const now = new Date();
+  const hoursDiff = (matchTime.getTime() - now.getTime()) / (1000 * 60 * 60);
+  const isLineupAvailable = hoursDiff <= 1 && hoursDiff >= -0.25; // 1 hour before to 15 min after kickoff
+
+  const handleUpdateWithLineup = async () => {
+    setIsUpdating(true);
+    try {
+      const response = await fetch(`/api/update-lineup?eventId=${match.$id}`, {
+        method: 'POST',
+      });
+
+      if (response.ok) {
+        // Reload the page to show updated predictions
+        window.location.reload();
+      } else {
+        alert('Lineup not available yet. Please try again closer to kickoff.');
+      }
+    } catch (error) {
+      console.error('Error updating with lineup:', error);
+      alert('Failed to update predictions. Please try again.');
+    } finally {
+      setIsUpdating(false);
+    }
+  };
 
   return (
     <div
@@ -122,8 +152,36 @@ export function MatchCard({ match }: MatchCardProps) {
         </div>
 
         {/* Match Date/Time */}
-        <div className="text-xs text-gray-500">
-          {format(new Date(match.datetime), 'MMM dd, yyyy • HH:mm')}
+        <div className="flex items-center justify-between">
+          <div className="text-xs text-gray-500">
+            {format(new Date(match.datetime), 'MMM dd, yyyy • HH:mm')}
+          </div>
+
+          {/* Update with Lineup Button - Only show if within 1 hour */}
+          {isLineupAvailable && (
+            <button
+              onClick={handleUpdateWithLineup}
+              disabled={isUpdating}
+              className="px-3 py-1 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+            >
+              {isUpdating ? (
+                <>
+                  <svg className="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Updating...
+                </>
+              ) : (
+                <>
+                  <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Update with Lineup
+                </>
+              )}
+            </button>
+          )}
         </div>
       </div>
 
@@ -188,8 +246,15 @@ export function MatchCard({ match }: MatchCardProps) {
         )}
       </div>
 
+      {/* AI Chat */}
+      <MatchChat
+        homeTeam={match.homeTeam}
+        awayTeam={match.awayTeam}
+        eventId={match.$id}
+      />
+
       {/* Footer */}
-      <div className="px-4 py-3 bg-gray-50 border-t rounded-b-xl">
+      <div className="px-4 py-3 bg-gray-50">
         <div className="flex items-center justify-between text-xs text-gray-500">
           <span>📍 {match.venue || 'Venue TBD'}</span>
           <span>Updated {format(new Date(match.$updatedAt), 'HH:mm')}</span>

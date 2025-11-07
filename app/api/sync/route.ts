@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
             console.error('❌ Failed to fetch fixtures');
             sendProgress({
               type: 'error',
-              error: 'Failed to fetch fixtures. Please try again.',
+              error: `Failed to fetch fixtures for ${leagueName}. This could be due to API rate limits or the league may not be available. Please try again in a few moments.`,
             });
             controller.close();
             return;
@@ -104,7 +104,7 @@ export async function POST(request: NextRequest) {
             console.error(`❌ No events found for ${leagueName}`);
             sendProgress({
               type: 'error',
-              error: 'No upcoming matches found for this league.',
+              error: `No upcoming matches found for ${leagueName}. This league may not have any scheduled matches in the next 7 days. Try another league like Premier League or La Liga.`,
             });
             controller.close();
             return;
@@ -149,7 +149,7 @@ export async function POST(request: NextRequest) {
                 current: i,
                 total: leagueEvents.length,
                 currentMatch: `${event.homeTeam} vs ${event.awayTeam}`,
-                stage: 'Fetching historical data',
+                stage: 'Calculating probabilities',
               },
             });
 

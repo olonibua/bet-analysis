@@ -107,8 +107,34 @@ export default function Dashboard() {
       <main className="max-w-7xl mx-auto px-6 py-8">
         {/* Error Display */}
         {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-            <p className="text-red-800 text-sm">{error}</p>
+          <div className="mb-6 bg-red-50 border-2 border-red-300 rounded-xl p-6 shadow-sm">
+            <div className="flex items-start">
+              <svg
+                className="w-6 h-6 text-red-600 mt-0.5 mr-3 flex-shrink-0"
+                fill="currentColor"
+                viewBox="0 0 20 20"
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                  clipRule="evenodd"
+                />
+              </svg>
+              <div className="flex-1">
+                <h3 className="text-sm font-semibold text-red-900 mb-1">Error</h3>
+                <p className="text-sm text-red-800">{error}</p>
+                <button
+                  onClick={() => {
+                    setError(null);
+                    setMatches([]);
+                    setSelectedLeague(null);
+                  }}
+                  className="mt-3 px-4 py-2 text-sm font-medium text-red-700 bg-red-100 hover:bg-red-200 rounded-lg transition-colors"
+                >
+                  Try Another League
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
