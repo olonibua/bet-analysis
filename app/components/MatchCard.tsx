@@ -1,10 +1,87 @@
 'use client';
 
-import { EventWithProbabilities } from '@/lib/types';
+import { EventWithProbabilities, Probability } from '@/lib/types';
 import { format } from 'date-fns';
+import { useState } from 'react';
 
 interface MatchCardProps {
   match: EventWithProbabilities;
+}
+
+interface PredictionSectionProps {
+  title: string;
+  probabilities: Probability[];
+}
+
+function PredictionSection({ title, probabilities }: PredictionSectionProps) {
+  const [isOpen, setIsOpen] = useState(true);
+
+  if (probabilities.length === 0) return null;
+
+  return (
+    <div className="border border-gray-200 rounded-lg overflow-hidden">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors flex items-center justify-between"
+      >
+        <span className="text-sm font-semibold text-gray-900">{title}</span>
+        <svg
+          className={`w-5 h-5 text-gray-500 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {isOpen && (
+        <div className="p-4 space-y-3 bg-white">
+          {probabilities.map((prob) => {
+            const percentage = Math.round(prob.probability * 100);
+            return (
+              <div key={prob.$id} className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-gray-900">
+                    {prob.subMarket}
+                  </span>
+                  <span className="text-sm font-bold text-blue-600">
+                    {percentage}%
+                  </span>
+                </div>
+                <div className="w-full bg-gray-100 rounded-full h-2">
+                  <div
+                    className={`
+                      h-full rounded-full transition-all
+                      ${percentage >= 75 ? 'bg-green-500' :
+                        percentage >= 60 ? 'bg-yellow-500' :
+                        'bg-gray-400'}
+                    `}
+                    style={{ width: `${percentage}%` }}
+                  ></div>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-gray-500">
+                    Based on {prob.sampleSize} matches
+                  </span>
+                  <span
+                    className={`
+                      font-medium
+                      ${prob.confidence === 'High' ? 'text-green-600' :
+                        prob.confidence === 'Medium' ? 'text-yellow-600' :
+                        'text-gray-600'}
+                    `}
+                  >
+                    {prob.confidence}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function MatchCard({ match }: MatchCardProps) {
@@ -72,53 +149,24 @@ export function MatchCard({ match }: MatchCardProps) {
           </div>
         </div>
 
-        {/* Predictions */}
+        {/* Predictions - Grouped by Category */}
         {hasProb ? (
-          <div className="space-y-3">
+          <div className="space-y-2">
             <h4 className="text-sm font-semibold text-gray-700 mb-3">
-              Top Predictions
+              Predictions
             </h4>
-            {match.topProbabilities.slice(0, 5).map((prob) => {
-              const percentage = Math.round(prob.probability * 100);
-              return (
-                <div key={prob.$id} className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-gray-900">
-                      {prob.market === 'Match Result' ? prob.subMarket : `${prob.market} - ${prob.subMarket}`}
-                    </span>
-                    <span className="text-sm font-bold text-blue-600">
-                      {percentage}%
-                    </span>
-                  </div>
-                  <div className="w-full bg-gray-100 rounded-full h-2">
-                    <div
-                      className={`
-                        h-full rounded-full transition-all
-                        ${percentage >= 75 ? 'bg-green-500' :
-                          percentage >= 60 ? 'bg-yellow-500' :
-                          'bg-gray-400'}
-                      `}
-                      style={{ width: `${percentage}%` }}
-                    ></div>
-                  </div>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-gray-500">
-                      Based on {prob.sampleSize} matches
-                    </span>
-                    <span
-                      className={`
-                        font-medium
-                        ${prob.confidence === 'High' ? 'text-green-600' :
-                          prob.confidence === 'Medium' ? 'text-yellow-600' :
-                          'text-gray-600'}
-                      `}
-                    >
-                      {prob.confidence}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
+            <PredictionSection
+              title="Match Result"
+              probabilities={match.topProbabilities.filter(p => p.market === 'Match Result')}
+            />
+            <PredictionSection
+              title="Goals"
+              probabilities={match.topProbabilities.filter(p => p.market === 'Over/Under 2.5')}
+            />
+            <PredictionSection
+              title="Both Teams to Score"
+              probabilities={match.topProbabilities.filter(p => p.market === 'Both Teams to Score')}
+            />
           </div>
         ) : (
           <div className="text-center py-8">
