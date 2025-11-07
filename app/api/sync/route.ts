@@ -2,7 +2,6 @@ import { NextRequest } from 'next/server';
 import { crawlLeagueFixtures } from '@/lib/data-crawler';
 import { getEventsWithProbabilities } from '@/lib/database';
 import { calculateEventProbabilities } from '@/lib/probability-engine';
-import { COMPETITIONS } from '@/lib/football-api';
 import { crawlMatchupHistory } from '@/lib/historical-data-crawler';
 
 /**
@@ -47,7 +46,7 @@ export async function POST(request: NextRequest) {
     const stream = new ReadableStream({
       async start(controller) {
         // Helper to send progress updates
-        const sendProgress = (data: any) => {
+        const sendProgress = (data: { type: string; progress?: { current: number; total: number; currentMatch: string; stage: string }; matches?: unknown[]; error?: string }) => {
           const message = `data: ${JSON.stringify(data)}\n\n`;
           controller.enqueue(encoder.encode(message));
         };

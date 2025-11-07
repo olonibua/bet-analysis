@@ -1,5 +1,7 @@
 'use client';
 
+import { useState, useEffect } from 'react';
+
 interface ProgressTrackerProps {
   current: number;
   total: number;
@@ -14,6 +16,28 @@ export function ProgressTracker({
   stage,
 }: ProgressTrackerProps) {
   const percentage = total > 0 ? Math.round((current / total) * 100) : 0;
+  const totalSeconds = Math.max(0, (total - current) * 20);
+  const [countdown, setCountdown] = useState(totalSeconds);
+
+  useEffect(() => {
+    setCountdown(totalSeconds);
+  }, [totalSeconds]);
+
+  useEffect(() => {
+    if (countdown <= 0) return;
+
+    const timer = setInterval(() => {
+      setCountdown((prev) => Math.max(0, prev - 1));
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [countdown]);
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
 
   return (
     <div className="bg-white rounded-xl shadow-sm border p-8">
@@ -86,7 +110,11 @@ export function ProgressTracker({
         <p className="text-sm text-gray-600">
           Estimated time remaining:{' '}
           <span className="font-semibold text-gray-900">
-            {Math.max(0, (total - current) * 20)} seconds
+            {totalSeconds} seconds
+          </span>
+          {' : '}
+          <span className="font-mono text-lg font-bold text-blue-600">
+            {formatTime(countdown)}
           </span>
         </p>
         <p className="text-xs text-gray-500 mt-1">

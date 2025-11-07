@@ -30,7 +30,14 @@ export async function analyzeMatchWithAI(
   homeMatches: Match[],
   awayMatches: Match[],
   headToHead: Match[],
-  enhancedData?: any[]
+  enhancedData?: Array<{
+    matchId: string;
+    homeTeam: string;
+    awayTeam: string;
+    lineup?: unknown;
+    events?: unknown[];
+    statistics?: unknown;
+  }>
 ): Promise<AnalysisResult> {
   if (!OPENAI_API_KEY || OPENAI_API_KEY === 'your_openai_api_key_here') {
     // Fallback to simple statistical analysis if no API key
@@ -103,7 +110,14 @@ function buildAnalysisPrompt(
   homeMatches: Match[],
   awayMatches: Match[],
   headToHead: Match[],
-  enhancedData?: any[]
+  enhancedData?: Array<{
+    matchId: string;
+    homeTeam: string;
+    awayTeam: string;
+    lineup?: unknown;
+    events?: unknown[];
+    statistics?: unknown;
+  }>
 ): string {
   // Calculate recent form (last 5 matches)
   const homeForm = calculateForm(homeTeam, homeMatches.slice(0, 5));
