@@ -55,7 +55,7 @@ export function LeagueSelector({ onLeagueLoad, disabled }: LeagueSelectorProps) 
                   className="w-full px-4 py-2.5 text-sm font-medium text-left bg-gray-50 hover:bg-blue-50 hover:text-blue-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-between"
                 >
                   <div>
-                    <div className="font-semibold">{count.label}</div>
+                    <div className="font-semibold text-black">{count.label}</div>
                     <div className="text-xs text-gray-500">
                       {count.description}
                     </div>
