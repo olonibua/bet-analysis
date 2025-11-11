@@ -1,0 +1,13 @@
+{
+  "functions": {
+    "app/api/sync/route.ts": {
+      "maxDuration": 300
+    },
+    "app/api/match-chat/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/update-lineup/route.ts": {
+      "maxDuration": 60
+    }
+  }
+}
